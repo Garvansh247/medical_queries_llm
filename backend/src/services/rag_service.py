@@ -40,7 +40,7 @@ DATA_DIR = os.getenv("DATA_DIR", "./src/data")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
 # Ollama
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "tinyllama")
 
 # OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
