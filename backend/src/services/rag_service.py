@@ -22,9 +22,9 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
 load_dotenv()
 
@@ -53,22 +53,23 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
 # Prompt Template
 # ---------------------------------------------------------------------------
 
-MEDICAL_PROMPT = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""You are a knowledgeable clinical assistant. Your role is to answer
-medical questions strictly based on the provided context from trusted medical
-guidelines. Do not invent or assume any information not present in the context.
-If the context does not contain enough information to answer the question, say
-"I do not have enough information in the provided guidelines to answer this question."
-
-Context from medical guidelines:
-{context}
-
-User's medical question: {question}
-
-Provide a clear, concise, evidence-based answer. Reference the relevant section
-or guideline information where appropriate.""",
+_SYSTEM_PROMPT = (
+    "You are a knowledgeable clinical assistant. Your role is to answer medical "
+    "questions strictly based on the provided context from trusted medical guidelines. "
+    "Do not invent or assume any information. If the context does not contain enough "
+    "information to answer the question, say 'I do not have enough information in "
+    "the provided guidelines to answer this question.'\n\n"
+    "Context:\n{context}"
 )
+
+MEDICAL_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", _SYSTEM_PROMPT),
+    # {input} is the standard variable name expected by create_retrieval_chain
+    ("human", "{input}"),
+])
+
+# Document prompt used by create_stuff_documents_chain to format each retrieved chunk
+_DOC_PROMPT = PromptTemplate.from_template("Source: {source}\n{page_content}")
 
 # ---------------------------------------------------------------------------
 # RAGService class
@@ -216,23 +217,11 @@ class RAGService:
         # Build LLM
         self._llm = self._build_llm()
 
-        # Build RAG chain
-        def format_docs(retrieved_docs):
-            parts = []
-            for i, doc in enumerate(retrieved_docs, 1):
-                source = doc.metadata.get("source", "Unknown source")
-                parts.append(f"[{i}] Source: {Path(source).name}\n{doc.page_content}")
-            return "\n\n---\n\n".join(parts)
-
-        self._chain = (
-            {
-                "context": self._retriever | format_docs,
-                "question": RunnablePassthrough(),
-            }
-            | MEDICAL_PROMPT
-            | self._llm
-            | StrOutputParser()
+        # Build RAG chain using create_stuff_documents_chain + create_retrieval_chain
+        question_answer_chain = create_stuff_documents_chain(
+            self._llm, MEDICAL_PROMPT, document_prompt=_DOC_PROMPT
         )
+        self._chain = create_retrieval_chain(self._retriever, question_answer_chain)
 
         self._is_ready = True
         logger.info("RAG pipeline initialized successfully.")
@@ -253,13 +242,11 @@ class RAGService:
             )
 
         # Retrieve source documents for citation
-        retrieved_docs = self._retriever.invoke(question)
+        result = self._chain.invoke({"input": question})
+        answer = result["answer"]
         sources = list(
-            {Path(doc.metadata.get("source", "Unknown")).name for doc in retrieved_docs}
+            {Path(doc.metadata.get("source", "Unknown")).name for doc in result["context"]}
         )
-
-        # Generate answer
-        answer = self._chain.invoke(question)
 
         return {"answer": answer, "sources": sorted(sources)}
 
