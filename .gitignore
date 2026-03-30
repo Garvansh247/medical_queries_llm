@@ -1,0 +1,26 @@
+# Dependencies
+frontend/node_modules/
+backend/venv/
+backend/__pycache__/
+backend/src/**/__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Build artifacts
+frontend/dist/
+frontend/.vite/
+
+# Vector database (auto-generated on first run)
+backend/chroma_db/
+
+# Environment secrets
+backend/.env
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Python eggs
+*.egg-info/
+.eggs/
