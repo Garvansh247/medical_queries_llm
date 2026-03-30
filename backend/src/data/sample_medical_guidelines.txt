@@ -1,0 +1,243 @@
+SAMPLE MEDICAL GUIDELINES - CLINICAL REFERENCE DOCUMENT
+(For Educational Purposes Only)
+
+==========================================================================
+SECTION 1: DIABETES MELLITUS - TYPE 2
+==========================================================================
+
+1.1 DEFINITION
+Type 2 Diabetes Mellitus (T2DM) is a chronic metabolic disorder characterized
+by insulin resistance and progressive loss of pancreatic beta-cell function,
+resulting in hyperglycemia. It accounts for approximately 90-95% of all
+diabetes cases worldwide.
+
+1.2 DIAGNOSTIC CRITERIA (ADA 2023 Standards)
+A diagnosis of diabetes is made when ANY of the following criteria are met:
+  - Fasting Plasma Glucose (FPG) >= 126 mg/dL (7.0 mmol/L) on two separate occasions.
+  - 2-hour Plasma Glucose >= 200 mg/dL (11.1 mmol/L) during an Oral Glucose
+    Tolerance Test (OGTT) using a 75-g glucose load.
+  - HbA1c (Glycated Hemoglobin) >= 6.5% (48 mmol/mol) on a certified assay.
+  - Random Plasma Glucose >= 200 mg/dL (11.1 mmol/L) in a patient with classic
+    symptoms of hyperglycemia (polyuria, polydipsia, unexplained weight loss).
+
+Pre-Diabetes is defined as:
+  - Impaired Fasting Glucose (IFG): FPG 100-125 mg/dL (5.6-6.9 mmol/L)
+  - Impaired Glucose Tolerance (IGT): 2-hour OGTT 140-199 mg/dL (7.8-11.0 mmol/L)
+  - HbA1c: 5.7% - 6.4% (39-47 mmol/mol)
+
+1.3 FIRST-LINE PHARMACOLOGICAL TREATMENT
+The first-line pharmacological agent for Type 2 Diabetes, in the absence of
+contraindications, is METFORMIN (Biguanide class).
+
+Metformin Dosing:
+  - Starting dose: 500 mg once or twice daily with meals to reduce GI side effects.
+  - Titration: Increase by 500 mg weekly or 850 mg every 2 weeks.
+  - Maximum effective dose: 2000-2550 mg/day in divided doses.
+  - Maximum dose: 3000 mg/day (rarely used).
+
+Mechanism of Metformin:
+  - Decreases hepatic glucose production (gluconeogenesis).
+  - Improves peripheral insulin sensitivity.
+  - Does not cause hypoglycemia when used as monotherapy.
+  - Associated with modest weight loss or weight neutrality.
+
+Contraindications for Metformin:
+  - eGFR < 30 mL/min/1.73m² (contraindicated); use with caution if eGFR 30-45.
+  - Acute or chronic metabolic acidosis.
+  - Severe hepatic impairment.
+  - Iodinated contrast media (hold temporarily before/after procedure).
+
+1.4 GLYCEMIC TARGETS
+  - HbA1c target: < 7.0% for most non-pregnant adults with T2DM.
+  - More stringent target (< 6.5%): Appropriate for younger patients with short
+    disease duration, no cardiovascular disease, and low hypoglycemia risk.
+  - Less stringent target (< 8.0%): Appropriate for patients with history of severe
+    hypoglycemia, limited life expectancy, or advanced complications.
+  - Fasting/Pre-meal glucose: 80-130 mg/dL (4.4-7.2 mmol/L).
+  - Post-meal (1-2 hours after): < 180 mg/dL (< 10.0 mmol/L).
+
+1.5 SECOND-LINE AND ADD-ON AGENTS
+When Metformin alone is insufficient to achieve glycemic targets, add-on therapy
+is selected based on patient-specific factors:
+
+  a) GLP-1 Receptor Agonists (e.g., Semaglutide, Liraglutide):
+     - Preferred in patients with established cardiovascular disease (CVD) or
+       high CVD risk, or those needing weight loss.
+     - Semaglutide (Ozempic): 0.5 mg SC weekly, increase to 1 mg or 2 mg weekly.
+     - Associated with significant weight loss (5-15% body weight).
+
+  b) SGLT-2 Inhibitors (e.g., Empagliflozin, Dapagliflozin):
+     - Preferred in patients with heart failure (HFrEF) or chronic kidney disease (CKD).
+     - Empagliflozin (Jardiance): 10 mg or 25 mg once daily.
+     - Dapagliflozin (Farxiga): 10 mg once daily.
+     - Mechanism: Block renal glucose reabsorption, causing glucosuria.
+     - Additional benefits: Reduce cardiovascular mortality and slow CKD progression.
+
+  c) DPP-4 Inhibitors (e.g., Sitagliptin, Saxagliptin):
+     - Weight neutral; low hypoglycemia risk; good tolerability.
+     - Sitagliptin (Januvia): 100 mg once daily (dose adjust for renal impairment).
+
+  d) Sulfonylureas (e.g., Glipizide, Glimepiride):
+     - Low cost; effective but associated with hypoglycemia and weight gain.
+     - Glipizide: 5-20 mg/day.
+
+  e) Basal Insulin (e.g., Insulin Glargine, Insulin Detemir):
+     - Used when oral agents fail; starting dose typically 10 units/day or
+       0.1-0.2 units/kg/day.
+
+1.6 LIFESTYLE MODIFICATIONS (CORNERSTONE OF MANAGEMENT)
+  - Dietary Changes: Individualized Medical Nutrition Therapy (MNT). Reduce refined
+    carbohydrates, sugars, and saturated fats. The Mediterranean or DASH diet
+    pattern is recommended.
+  - Physical Activity: At least 150 minutes/week of moderate-intensity aerobic
+    activity (e.g., brisk walking). Include resistance training 2-3 times/week.
+  - Weight Loss: A 5-10% reduction in body weight significantly improves glycemic
+    control and cardiovascular risk factors.
+  - Smoking Cessation: Strongly recommended; smoking worsens insulin resistance
+    and cardiovascular risk.
+
+1.7 MONITORING
+  - HbA1c: Measure every 3 months until stable, then every 6 months.
+  - Self-Monitoring of Blood Glucose (SMBG): Frequency depends on treatment regimen.
+  - Annual screening: Urine albumin-to-creatinine ratio (for nephropathy), dilated
+    eye exam (for retinopathy), foot exam (for neuropathy and peripheral vascular disease),
+    lipid panel, and blood pressure.
+
+==========================================================================
+SECTION 2: HYPERTENSION (HIGH BLOOD PRESSURE)
+==========================================================================
+
+2.1 DEFINITION AND CLASSIFICATION (ACC/AHA 2017 Guidelines)
+  - Normal: Systolic < 120 mmHg AND Diastolic < 80 mmHg
+  - Elevated: Systolic 120-129 mmHg AND Diastolic < 80 mmHg
+  - Stage 1 Hypertension: Systolic 130-139 mmHg OR Diastolic 80-89 mmHg
+  - Stage 2 Hypertension: Systolic >= 140 mmHg OR Diastolic >= 90 mmHg
+  - Hypertensive Crisis: Systolic > 180 mmHg and/or Diastolic > 120 mmHg
+
+2.2 TREATMENT TARGETS
+  - For most patients: Target BP < 130/80 mmHg.
+  - For patients >= 65 years: Target SBP < 130 mmHg (if tolerated).
+
+2.3 FIRST-LINE ANTIHYPERTENSIVE AGENTS
+Four main drug classes are recommended as first-line therapy:
+
+  a) Thiazide Diuretics (e.g., Chlorthalidone, Hydrochlorothiazide - HCTZ)
+     - Chlorthalidone: 12.5-25 mg once daily (preferred over HCTZ for CV benefit).
+     - Hydrochlorothiazide: 12.5-50 mg once daily.
+
+  b) ACE Inhibitors (e.g., Lisinopril, Ramipril)
+     - Lisinopril: 10-40 mg once daily.
+     - Preferred in patients with diabetes, CKD with proteinuria, or heart failure.
+     - Contraindicated in pregnancy (teratogenic - Category D/X).
+     - Side effect: Dry cough (in 10-20% of patients); switch to ARB if intolerable.
+
+  c) Angiotensin Receptor Blockers (ARBs) (e.g., Losartan, Valsartan)
+     - Losartan: 50-100 mg once daily.
+     - Same indications as ACE inhibitors; preferred when ACE inhibitor cough occurs.
+     - Also contraindicated in pregnancy.
+
+  d) Calcium Channel Blockers (CCBs) (e.g., Amlodipine, Diltiazem)
+     - Amlodipine (Dihydropyridine): 5-10 mg once daily. Good for isolated
+       systolic hypertension and elderly patients.
+     - Diltiazem (Non-Dihydropyridine): Rate-controlling properties; useful in
+       AF with hypertension.
+
+2.4 LIFESTYLE MODIFICATIONS FOR HYPERTENSION
+  - DASH Diet: Rich in fruits, vegetables, whole grains, low-fat dairy; low in
+    sodium, saturated fats.
+  - Sodium Restriction: < 2.3 g/day (ideally < 1.5 g/day) - can reduce SBP by 5-6 mmHg.
+  - Alcohol Limitation: Men <= 2 drinks/day; Women <= 1 drink/day.
+  - Weight Reduction: Losing 1 kg reduces SBP by approximately 1 mmHg.
+  - Regular Aerobic Exercise: 90-150 minutes/week reduces SBP by 5-8 mmHg.
+  - Smoking Cessation: Smoking acutely raises blood pressure.
+
+==========================================================================
+SECTION 3: COMMON MEDICATIONS - AMOXICILLIN (ANTIBIOTIC)
+==========================================================================
+
+3.1 DRUG CLASS
+Amoxicillin is a broad-spectrum aminopenicillin antibiotic (beta-lactam class).
+It works by inhibiting bacterial cell wall synthesis.
+
+3.2 SPECTRUM OF ACTIVITY
+Effective against many Gram-positive and some Gram-negative bacteria, including:
+  - Streptococcus pneumoniae, Streptococcus pyogenes (Group A Strep)
+  - Haemophilus influenzae (non-beta-lactamase producing)
+  - Escherichia coli (many strains)
+  - Helicobacter pylori (as part of combination therapy)
+  - Listeria monocytogenes
+
+3.3 STANDARD DOSAGE (ADULTS)
+  - Mild-to-Moderate Infections (e.g., Streptococcal pharyngitis, acute otitis media):
+    500 mg orally every 8 hours (three times daily) for 7-10 days.
+    OR 875 mg orally every 12 hours (twice daily) for 7-10 days.
+
+  - Community-Acquired Pneumonia (CAP) - Outpatient:
+    1000 mg orally three times daily for 5 days (in combination with a macrolide).
+
+  - Helicobacter pylori Eradication (Triple Therapy):
+    1000 mg twice daily + Clarithromycin 500 mg twice daily + PPI for 14 days.
+
+  - Dental/Oral Infections (Prophylaxis):
+    2000 mg (2 g) as a single dose, 30-60 minutes before the dental procedure.
+
+3.4 STANDARD DOSAGE (CHILDREN)
+  - Standard: 25-45 mg/kg/day divided every 8 or 12 hours.
+  - High-dose (for resistant S. pneumoniae): 80-90 mg/kg/day divided.
+  - Maximum: 3000 mg/day.
+
+3.5 CONTRAINDICATIONS AND PRECAUTIONS
+  - Contraindicated in patients with a history of severe hypersensitivity
+    (anaphylaxis) to amoxicillin, ampicillin, or any beta-lactam antibiotic.
+  - Use with caution in patients with a history of penicillin allergy (cross-reactivity).
+  - Dose adjustment required in renal impairment (eGFR < 30 mL/min/1.73m²).
+
+3.6 COMMON SIDE EFFECTS
+  - Gastrointestinal: Nausea, vomiting, diarrhea (most common).
+  - Skin: Rash, urticaria. A non-allergic maculopapular rash may occur,
+    especially in patients with Epstein-Barr virus (mononucleosis) - this is not
+    a true penicillin allergy.
+  - Rare but serious: Anaphylaxis, Clostridium difficile-associated diarrhea (CDAD),
+    hepatotoxicity (with amoxicillin-clavulanate).
+
+==========================================================================
+SECTION 4: ASTHMA - QUICK REFERENCE
+==========================================================================
+
+4.1 DEFINITION
+Asthma is a chronic inflammatory disease of the airways characterized by
+reversible airflow obstruction, bronchial hyperresponsiveness, and airway
+inflammation.
+
+4.2 CLASSIFICATION BY SEVERITY (NAEPP Guidelines)
+  - Intermittent: Symptoms <= 2 days/week; nighttime awakenings <= 2x/month;
+    FEV1 >= 80% predicted.
+  - Mild Persistent: Symptoms > 2 days/week but not daily; nighttime awakenings
+    3-4x/month; FEV1 >= 80% predicted.
+  - Moderate Persistent: Daily symptoms; nighttime awakenings > 1x/week; FEV1
+    60-79% predicted.
+  - Severe Persistent: Continuous symptoms; frequent nighttime awakenings;
+    FEV1 < 60% predicted.
+
+4.3 CONTROLLER (LONG-TERM) MEDICATIONS
+  - Inhaled Corticosteroids (ICS): First-line controller therapy for persistent
+    asthma. Examples: Fluticasone (Flovent), Budesonide (Pulmicort).
+  - Long-Acting Beta-2 Agonists (LABA): Never used as monotherapy; always combined
+    with ICS. Examples: Salmeterol, Formoterol.
+  - ICS/LABA Combination inhalers (e.g., Fluticasone/Salmeterol - Advair;
+    Budesonide/Formoterol - Symbicort): Preferred for moderate-to-severe persistent asthma.
+  - Leukotriene Receptor Antagonists (e.g., Montelukast): Alternative controller
+    for mild persistent asthma or used as add-on therapy.
+
+4.4 RELIEVER (SHORT-ACTING) MEDICATIONS
+  - Short-Acting Beta-2 Agonists (SABA): Albuterol (Salbutamol) is the gold standard
+    rescue inhaler. Dose: 2 puffs every 4-6 hours as needed.
+  - Use of SABA more than 2 days/week for symptom relief (other than exercise)
+    indicates inadequate asthma control and need to step up therapy.
+
+==========================================================================
+DISCLAIMER: This document is for educational and demonstration purposes only.
+It is not a substitute for professional medical advice, diagnosis, or treatment.
+Clinical decisions should always be made by qualified healthcare professionals
+based on current guidelines and individual patient circumstances.
+==========================================================================
