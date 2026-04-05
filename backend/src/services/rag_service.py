@@ -85,7 +85,7 @@ def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
 # LCEL Routing – Domain Classification
 # ---------------------------------------------------------------------------
 
-# A very short prompt optimised for TinyLlama (small models need simple instructions).
+# A very short prompt optimized for TinyLlama (small models need simple instructions).
 # It asks the model to output exactly one word: MEDICAL or NON_MEDICAL.
 _CLASSIFY_TEMPLATE = (
     "Does the following question relate to medicine, health, symptoms, diseases, "
@@ -106,7 +106,7 @@ class DomainClassifierParser(BaseOutputParser[str]):
     """
 
     def parse(self, text: str) -> str:
-        # Normalise to uppercase and strip whitespace / punctuation
+        # Normalize to uppercase and strip whitespace / punctuation
         cleaned = text.strip().upper()
         if "NON_MEDICAL" in cleaned:
             return "NON_MEDICAL"
