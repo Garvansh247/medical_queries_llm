@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import ChatBox from "../components/ChatBox";
-import { askQuestion } from "../services/api";
+import { askQuestion, clearSession } from "../services/api";
 import {
   APP_NAME,
   APP_TAGLINE,
@@ -8,7 +8,16 @@ import {
   WELCOME_MESSAGE,
 } from "../utils/constants";
 
+/**
+ * Generate a unique session ID using the browser's built-in crypto API.
+ * This is called once on mount and again whenever the user clicks "New Chat".
+ */
+const generateSessionId = () => crypto.randomUUID();
+
 const Home = () => {
+  // sessionId tracks the current conversation on the backend (for memory)
+  const [sessionId, setSessionId] = useState(() => generateSessionId());
+
   const [messages, setMessages] = useState([
     { role: "assistant", content: WELCOME_MESSAGE, sources: [] },
   ]);
@@ -20,14 +29,15 @@ const Home = () => {
     const question = input.trim();
     if (!question || isLoading) return;
 
-    // Add user message
+    // Add user message to the chat log immediately
     setMessages((prev) => [...prev, { role: "user", content: question }]);
     setInput("");
     setIsLoading(true);
     setError(null);
 
     try {
-      const data = await askQuestion(question);
+      // Pass the current sessionId so the backend can use chat history
+      const data = await askQuestion(question, sessionId);
       setMessages((prev) => [
         ...prev,
         {
@@ -62,7 +72,23 @@ const Home = () => {
     }
   };
 
-  const handleClear = () => {
+  /**
+   * "New Chat" handler:
+   * 1. Tell the backend to forget the current session's history.
+   * 2. Generate a fresh session ID for the next conversation.
+   * 3. Reset the local chat log to the welcome message.
+   */
+  const handleNewChat = async () => {
+    // Optionally clear the old session on the backend (fire-and-forget)
+    try {
+      await clearSession(sessionId);
+    } catch (e) {
+      // Not critical — the backend will just keep an unused history entry
+      console.warn("Could not clear session on backend:", e);
+    }
+
+    // Start fresh locally
+    setSessionId(generateSessionId());
     setMessages([{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }]);
     setError(null);
   };
@@ -75,8 +101,9 @@ const Home = () => {
           <h1 className="text-xl font-bold tracking-wide">🩺 {APP_NAME}</h1>
           <p className="text-teal-200 text-xs mt-0.5">{APP_TAGLINE}</p>
         </div>
+        {/* New Chat button: resets session & chat log */}
         <button
-          onClick={handleClear}
+          onClick={handleNewChat}
           className="text-xs bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded-lg transition-colors"
         >
           New Chat
