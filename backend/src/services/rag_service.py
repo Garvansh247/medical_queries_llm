@@ -14,32 +14,32 @@ Flow:
      c. If MEDICAL, retrieve the top-k relevant chunks and pass them with the
         full chat history to the LLM to generate a grounded, cited answer.
 
-Key LangChain concepts used here:
+Key LangChain concepts used here (CampusX / standard LCEL style):
   - LCEL (LangChain Expression Language): chains built with the `|` pipe operator.
-  - BaseOutputParser: custom parser to extract domain label from LLM output.
-  - RunnableWithMessageHistory: automatically injects and saves chat history.
+    Classic syntax: chain = prompt | llm | output_parser
+  - StrOutputParser: converts the LLM's AIMessage reply into a plain Python string.
+  - BaseOutputParser: custom parser to extract a domain label from LLM output.
+  - RunnableWithMessageHistory: automatically injects and saves chat history per session.
   - InMemoryChatMessageHistory: stores per-session message history in RAM.
+  - ChatGroq: free, cloud-hosted LLM from Groq (llama3-8b-8192) — no GPU needed.
 """
 
 import os
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from langchain_community.document_loaders import TextLoader
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
     PromptTemplate,
 )
-from langchain_core.output_parsers import BaseOutputParser
+from langchain_core.output_parsers import BaseOutputParser, StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
 
@@ -54,17 +54,19 @@ logger = logging.getLogger(__name__)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
 DATA_DIR = os.getenv("DATA_DIR", "./src/data")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+# LLM provider: "groq" (default, free), "openai", or "huggingface"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 
-# Ollama
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "tinyllama")
-
-# OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# Groq
+# Groq (free cloud API — strongly recommended for students)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+
+# OpenAI (paid)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# HuggingFace Endpoint (free via API token)
+HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
+HF_MODEL = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.1")
 
 # ---------------------------------------------------------------------------
 # Session store (Conversational Memory)
@@ -85,8 +87,7 @@ def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
 # LCEL Routing – Domain Classification
 # ---------------------------------------------------------------------------
 
-# A very short prompt optimized for TinyLlama (small models need simple instructions).
-# It asks the model to output exactly one word: MEDICAL or NON_MEDICAL.
+# A short prompt that asks the model to output exactly one word: MEDICAL or NON_MEDICAL.
 _CLASSIFY_TEMPLATE = (
     "Does the following question relate to medicine, health, symptoms, diseases, "
     "treatments, or drugs?\n"
@@ -103,6 +104,9 @@ class DomainClassifierParser(BaseOutputParser[str]):
 
     Parses the raw LLM text (e.g. ' NON_MEDICAL\n') and returns a clean
     string: either "MEDICAL" or "NON_MEDICAL".
+
+    CampusX concept: BaseOutputParser lets you define exactly how to
+    transform the LLM's raw text output into any Python type you need.
     """
 
     def parse(self, text: str) -> str:
@@ -132,15 +136,26 @@ _SYSTEM_PROMPT = (
 )
 
 # MessagesPlaceholder injects the full chat_history list into the prompt so
-# TinyLlama can remember previous turns within the same session.
+# the model can remember previous turns within the same session.
 MEDICAL_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _SYSTEM_PROMPT),
     MessagesPlaceholder(variable_name="chat_history"),  # injected by RunnableWithMessageHistory
     ("human", "{input}"),
 ])
 
-# Document prompt used by create_stuff_documents_chain to format each retrieved chunk
-_DOC_PROMPT = PromptTemplate.from_template("Source: {source}\n{page_content}")
+
+def _format_docs(docs: List) -> str:
+    """
+    Format a list of retrieved Document objects into a single string.
+    Each chunk is labelled with its source file so the LLM can cite it.
+
+    This string is passed as the "context" key when invoking the RAG chain,
+    filling in the {context} placeholder in MEDICAL_PROMPT.
+    """
+    return "\n\n".join(
+        f"[Source: {Path(doc.metadata.get('source', 'Unknown')).name}]\n{doc.page_content}"
+        for doc in docs
+    )
 
 # ---------------------------------------------------------------------------
 # RAGService class
@@ -151,11 +166,12 @@ class RAGService:
     """
     Encapsulates the full RAG pipeline for medical question answering.
 
-    Concepts for the student:
-    - _classify_chain  : LCEL chain that decides MEDICAL vs NON_MEDICAL (routing).
-    - _chain_with_history: RunnableWithMessageHistory wraps the RAG chain so that
-      previous messages in a session are automatically injected as chat_history.
-    - session_store    : global dict mapping session_id → ChatMessageHistory.
+    LangChain concepts used (CampusX LCEL style):
+    - _classify_chain    : chain = CLASSIFY_PROMPT | llm | DomainClassifierParser()
+    - _chain_with_history: chain = MEDICAL_PROMPT | llm | StrOutputParser()
+                           wrapped inside RunnableWithMessageHistory for per-session memory.
+                           Context (retrieved docs) and input are passed together on invoke.
+    - session_store      : global dict mapping session_id → ChatMessageHistory.
     """
 
     def __init__(self) -> None:
@@ -171,7 +187,15 @@ class RAGService:
     # ------------------------------------------------------------------
 
     def _build_llm(self):
-        """Instantiate the LLM based on the configured provider."""
+        """
+        Instantiate the LLM based on the LLM_PROVIDER environment variable.
+
+        - groq        : ChatGroq (free cloud API, default — recommended for students)
+        - openai      : ChatOpenAI (paid cloud API)
+        - huggingface : HuggingFaceEndpoint (free cloud API via HF Hub token)
+
+        All three behave identically in an LCEL chain: prompt | llm | output_parser
+        """
         if LLM_PROVIDER == "openai":
             from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
@@ -185,24 +209,33 @@ class RAGService:
                 api_key=OPENAI_API_KEY,
             )
 
-        elif LLM_PROVIDER == "groq":
+        elif LLM_PROVIDER == "huggingface":
+            from langchain_huggingface import HuggingFaceEndpoint  # noqa: PLC0415
+
+            if not HUGGINGFACEHUB_API_TOKEN:
+                raise ValueError(
+                    "HUGGINGFACEHUB_API_TOKEN is not set. Please add it to your .env file."
+                )
+            return HuggingFaceEndpoint(
+                repo_id=HF_MODEL,
+                temperature=0.2,
+                huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN,
+            )
+
+        else:
+            # Default: Groq (free, cloud, fast — no GPU or local install needed)
             from langchain_groq import ChatGroq  # noqa: PLC0415
 
             if not GROQ_API_KEY:
                 raise ValueError(
-                    "GROQ_API_KEY is not set. Please add it to your .env file."
+                    "GROQ_API_KEY is not set. Please add it to your .env file.\n"
+                    "Get a free API key at: https://console.groq.com"
                 )
             return ChatGroq(
                 model=GROQ_MODEL,
                 temperature=0.2,
                 groq_api_key=GROQ_API_KEY,
             )
-
-        else:
-            # Default: Ollama (local LLM)
-            from langchain_ollama import ChatOllama  # noqa: PLC0415
-
-            return ChatOllama(model=OLLAMA_MODEL, temperature=0.2)
 
     def _load_documents(self):
         """Load .txt and .pdf files from the data directory."""
@@ -275,9 +308,11 @@ class RAGService:
         Initialize the RAG pipeline.
         - If a persisted ChromaDB exists, load it (fast start).
         - Otherwise, build it from scratch (first run).
-        Builds two chains:
-          1. _classify_chain  : LCEL routing (domain check).
-          2. _chain_with_history: RAG chain wrapped with RunnableWithMessageHistory.
+
+        Builds two LCEL chains (CampusX style):
+          1. _classify_chain    : CLASSIFY_PROMPT | llm | DomainClassifierParser()
+          2. _chain_with_history: MEDICAL_PROMPT | llm | StrOutputParser()
+               wrapped with RunnableWithMessageHistory for conversational memory.
         """
         logger.info("Initializing RAG pipeline...")
 
@@ -301,34 +336,34 @@ class RAGService:
         self._llm = self._build_llm()
 
         # ------------------------------------------------------------------
-        # Chain 1: Domain Classification (LCEL Routing)
+        # Chain 1: Domain Classification (CampusX LCEL style)
+        # chain = prompt | llm | output_parser
         # ------------------------------------------------------------------
-        # CLASSIFY_PROMPT → LLM → DomainClassifierParser
         # Input : {"input": "<user question>"}
         # Output: "MEDICAL" or "NON_MEDICAL"
         self._classify_chain = CLASSIFY_PROMPT | self._llm | DomainClassifierParser()
 
         # ------------------------------------------------------------------
-        # Chain 2: RAG chain with Conversational Memory
+        # Chain 2: RAG chain with Conversational Memory (CampusX LCEL style)
+        # chain = prompt | llm | StrOutputParser()
         # ------------------------------------------------------------------
-        # Step A: create_stuff_documents_chain combines the retrieved docs into
-        #         the MEDICAL_PROMPT and calls the LLM.
-        question_answer_chain = create_stuff_documents_chain(
-            self._llm, MEDICAL_PROMPT, document_prompt=_DOC_PROMPT
-        )
-        # Step B: create_retrieval_chain first retrieves relevant chunks and
-        #         then passes them to question_answer_chain.
-        rag_chain = create_retrieval_chain(self._retriever, question_answer_chain)
+        # The context (retrieved documents) is formatted and injected into
+        # the input dict in query() before invoking the chain, so the chain
+        # itself is the classic: prompt | llm | output_parser
+        # Input dict keys expected by MEDICAL_PROMPT:
+        #   - "input"        : the user's question (from invoke call)
+        #   - "context"      : formatted retrieved documents (from invoke call)
+        #   - "chat_history" : previous messages (injected by RunnableWithMessageHistory)
+        rag_chain = MEDICAL_PROMPT | self._llm | StrOutputParser()
 
-        # Step C: RunnableWithMessageHistory wraps rag_chain so that every
-        #         call automatically loads the session's past messages into
-        #         "chat_history" and saves the new exchange afterwards.
+        # RunnableWithMessageHistory wraps rag_chain so that every call
+        # automatically loads the session's past messages into "chat_history"
+        # and saves the new exchange afterwards.
         self._chain_with_history = RunnableWithMessageHistory(
             rag_chain,
-            get_session_history,       # function returning the right history object
+            get_session_history,        # function returning the right history object
             input_messages_key="input",
             history_messages_key="chat_history",
-            output_messages_key="answer",
         )
 
         self._is_ready = True
@@ -339,14 +374,17 @@ class RAGService:
         Run the full pipeline for the given question and session.
 
         Step 1 – LCEL Routing (Domain Check):
-            Invoke _classify_chain to decide MEDICAL or NON_MEDICAL.
+            classify_chain.invoke({"input": question})
+            → "MEDICAL" or "NON_MEDICAL"
             If NON_MEDICAL, immediately return the refusal message.
 
-        Step 2 – RAG with Memory:
-            Invoke _chain_with_history, which:
-              a) retrieves relevant document chunks from ChromaDB,
-              b) injects chat_history for the session,
-              c) calls TinyLlama and saves the new turn to history.
+        Step 2 – Source Retrieval:
+            Fetch the top-k document chunks from ChromaDB for source citation.
+
+        Step 3 – RAG with Memory:
+            chain_with_history.invoke({"input": question}, config={...})
+            → plain answer string (from StrOutputParser)
+            RunnableWithMessageHistory automatically loads and saves chat history.
 
         Returns:
             {
@@ -373,24 +411,26 @@ class RAGService:
             }
 
         # ------------------------------------------------------------------
-        # Step 2: RAG chain with Conversational Memory
+        # Step 2: Single retrieval — get docs for both context and citation
         # ------------------------------------------------------------------
-        # config["configurable"]["session_id"] tells RunnableWithMessageHistory
-        # which history bucket in session_store to use.
-        result = self._chain_with_history.invoke(
-            {"input": question},
+        docs = self._retriever.invoke(question)
+        sources = sorted(
+            {Path(doc.metadata.get("source", "Unknown")).name for doc in docs}
+        )
+
+        # ------------------------------------------------------------------
+        # Step 3: RAG chain with Conversational Memory
+        # ------------------------------------------------------------------
+        # We pass "context" (formatted retrieved docs) together with "input"
+        # in the same invoke call. RunnableWithMessageHistory then injects
+        # "chat_history" automatically, giving MEDICAL_PROMPT all three keys.
+        # The chain returns a plain string (StrOutputParser: AIMessage → str).
+        answer = self._chain_with_history.invoke(
+            {"input": question, "context": _format_docs(docs)},
             config={"configurable": {"session_id": session_id}},
         )
 
-        answer = result["answer"]
-        sources = list(
-            {
-                Path(doc.metadata.get("source", "Unknown")).name
-                for doc in result.get("context", [])
-            }
-        )
-
-        return {"answer": answer, "sources": sorted(sources)}
+        return {"answer": answer, "sources": sources}
 
     def clear_session(self, session_id: str) -> bool:
         """
