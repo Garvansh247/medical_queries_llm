@@ -10,11 +10,23 @@ const apiClient = axios.create({
 
 /**
  * Send a medical question to the backend RAG pipeline.
- * @param {string} question - The user's medical question.
- * @returns {Promise<{answer: string, sources: string[]}>}
+ * @param {string} question   - The user's medical question.
+ * @param {string} session_id - The current chat session ID for memory continuity.
+ * @returns {Promise<{answer: string, sources: string[], session_id: string}>}
  */
-export const askQuestion = async (question) => {
-  const response = await apiClient.post("/chat", { question });
+export const askQuestion = async (question, session_id) => {
+  const response = await apiClient.post("/chat", { question, session_id });
+  return response.data;
+};
+
+/**
+ * Clear the chat history for a specific session on the backend.
+ * Call this when the user starts a "New Chat" so the AI forgets previous turns.
+ * @param {string} session_id - The session to clear.
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+export const clearSession = async (session_id) => {
+  const response = await apiClient.post("/clear", { session_id });
   return response.data;
 };
 

@@ -1,30 +1,47 @@
 """
 rag_service.py
 --------------
-Implements the full Retrieval-Augmented Generation (RAG) pipeline.
+Implements the full Retrieval-Augmented Generation (RAG) pipeline
+with LCEL routing and conversational memory.
 
 Flow:
   1. Load documents from the data directory.
   2. Split documents into chunks.
   3. Embed chunks and store them in ChromaDB (persisted on disk).
-  4. On each query: retrieve the top-k relevant chunks, then pass
-     them to the LLM to generate a grounded, cited answer.
+  4. On each query:
+     a. Classify the question as MEDICAL or NON_MEDICAL using a routing chain.
+     b. If NON_MEDICAL, return a static refusal message immediately.
+     c. If MEDICAL, retrieve the top-k relevant chunks and pass them with the
+        full chat history to the LLM to generate a grounded, cited answer.
+
+Key LangChain concepts used here:
+  - LCEL (LangChain Expression Language): chains built with the `|` pipe operator.
+  - BaseOutputParser: custom parser to extract domain label from LLM output.
+  - RunnableWithMessageHistory: automatically injects and saves chat history.
+  - InMemoryChatMessageHistory: stores per-session message history in RAM.
 """
 
 import os
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from dotenv import load_dotenv
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    PromptTemplate,
+)
+from langchain_core.output_parsers import BaseOutputParser
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
 load_dotenv()
 
@@ -50,22 +67,63 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
 
 # ---------------------------------------------------------------------------
-# Prompt Template
+# Session store (Conversational Memory)
+# ---------------------------------------------------------------------------
+# Maps session_id (str) → ChatMessageHistory so each user conversation is
+# remembered independently across multiple /chat requests.
+session_store: Dict[str, InMemoryChatMessageHistory] = {}
+
+
+def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
+    """Return the chat history for a session, creating it if it doesn't exist."""
+    if session_id not in session_store:
+        session_store[session_id] = InMemoryChatMessageHistory()
+    return session_store[session_id]
+
+
+# ---------------------------------------------------------------------------
+# LCEL Routing – Domain Classification
+# ---------------------------------------------------------------------------
+
+# A very short prompt optimized for TinyLlama (small models need simple instructions).
+# It asks the model to output exactly one word: MEDICAL or NON_MEDICAL.
+_CLASSIFY_TEMPLATE = (
+    "Does the following question relate to medicine, health, symptoms, diseases, "
+    "treatments, or drugs?\n"
+    "Reply with exactly one word: MEDICAL or NON_MEDICAL.\n\n"
+    "Question: {input}\n"
+    "Answer:"
+)
+CLASSIFY_PROMPT = PromptTemplate.from_template(_CLASSIFY_TEMPLATE)
+
+
+class DomainClassifierParser(BaseOutputParser[str]):
+    """
+    Custom OutputParser for the domain classification step.
+
+    Parses the raw LLM text (e.g. ' NON_MEDICAL\n') and returns a clean
+    string: either "MEDICAL" or "NON_MEDICAL".
+    """
+
+    def parse(self, text: str) -> str:
+        # Normalize to uppercase and strip whitespace / punctuation
+        cleaned = text.strip().upper()
+        if "NON_MEDICAL" in cleaned:
+            return "NON_MEDICAL"
+        return "MEDICAL"
+
+
+# ---------------------------------------------------------------------------
+# RAG Prompt Template (with chat history for conversational memory)
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = (
     "You are a clinical assistant that ONLY answers medical questions.\n\n"
     "Follow these steps strictly:\n"
-    "Step 1 - Check the topic: Decide if the user's question is about medicine, "
-    "health, symptoms, diseases, treatments, or drugs. "
-    "If it is NOT related to medicine or health (for example: coding, history, "
-    "mathematics, general chat, or any non-medical topic), you MUST reply with "
-    "EXACTLY this sentence and nothing else: "
-    "'I can answer only medical related problems.'\n"
-    "Step 2 - Fix spelling: If the question IS medical, silently correct any "
-    "spelling or typing mistakes before proceeding "
+    "Step 1 - Fix spelling: Silently correct any spelling or typing mistakes "
+    "in the question before proceeding "
     "(for example, 'pian in my ice' should be understood as 'pain in my eyes').\n"
-    "Step 3 - Answer: Answer the corrected medical question using ONLY the "
+    "Step 2 - Answer: Answer the corrected medical question using ONLY the "
     "information provided in the Context below. Do not invent or assume any "
     "information. If the context does not contain enough information to answer "
     "the question, say: 'I do not have enough information in the provided "
@@ -73,9 +131,11 @@ _SYSTEM_PROMPT = (
     "Context:\n{context}"
 )
 
+# MessagesPlaceholder injects the full chat_history list into the prompt so
+# TinyLlama can remember previous turns within the same session.
 MEDICAL_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _SYSTEM_PROMPT),
-    # {input} is the standard variable name expected by create_retrieval_chain
+    MessagesPlaceholder(variable_name="chat_history"),  # injected by RunnableWithMessageHistory
     ("human", "{input}"),
 ])
 
@@ -88,13 +148,22 @@ _DOC_PROMPT = PromptTemplate.from_template("Source: {source}\n{page_content}")
 
 
 class RAGService:
-    """Encapsulates the full RAG pipeline for medical question answering."""
+    """
+    Encapsulates the full RAG pipeline for medical question answering.
+
+    Concepts for the student:
+    - _classify_chain  : LCEL chain that decides MEDICAL vs NON_MEDICAL (routing).
+    - _chain_with_history: RunnableWithMessageHistory wraps the RAG chain so that
+      previous messages in a session are automatically injected as chat_history.
+    - session_store    : global dict mapping session_id → ChatMessageHistory.
+    """
 
     def __init__(self) -> None:
         self._vectorstore: Optional[Chroma] = None
         self._retriever = None
         self._llm = None
-        self._chain = None
+        self._classify_chain = None    # LCEL routing chain
+        self._chain_with_history = None  # RAG chain + memory
         self._is_ready = False
 
     # ------------------------------------------------------------------
@@ -152,7 +221,7 @@ class RAGService:
             docs.extend(loader.load())
             logger.info("Loaded text file: %s", txt_file.name)
 
-        # Load .pdf files
+        # Load .pdf files (PyPDFLoader kept intact as required)
         pdf_files = list(data_path.rglob("*.pdf"))
         for pdf_file in pdf_files:
             loader = PyPDFLoader(str(pdf_file))
@@ -206,6 +275,9 @@ class RAGService:
         Initialize the RAG pipeline.
         - If a persisted ChromaDB exists, load it (fast start).
         - Otherwise, build it from scratch (first run).
+        Builds two chains:
+          1. _classify_chain  : LCEL routing (domain check).
+          2. _chain_with_history: RAG chain wrapped with RunnableWithMessageHistory.
         """
         logger.info("Initializing RAG pipeline...")
 
@@ -228,23 +300,58 @@ class RAGService:
         # Build LLM
         self._llm = self._build_llm()
 
-        # Build RAG chain using create_stuff_documents_chain + create_retrieval_chain
+        # ------------------------------------------------------------------
+        # Chain 1: Domain Classification (LCEL Routing)
+        # ------------------------------------------------------------------
+        # CLASSIFY_PROMPT → LLM → DomainClassifierParser
+        # Input : {"input": "<user question>"}
+        # Output: "MEDICAL" or "NON_MEDICAL"
+        self._classify_chain = CLASSIFY_PROMPT | self._llm | DomainClassifierParser()
+
+        # ------------------------------------------------------------------
+        # Chain 2: RAG chain with Conversational Memory
+        # ------------------------------------------------------------------
+        # Step A: create_stuff_documents_chain combines the retrieved docs into
+        #         the MEDICAL_PROMPT and calls the LLM.
         question_answer_chain = create_stuff_documents_chain(
             self._llm, MEDICAL_PROMPT, document_prompt=_DOC_PROMPT
         )
-        self._chain = create_retrieval_chain(self._retriever, question_answer_chain)
+        # Step B: create_retrieval_chain first retrieves relevant chunks and
+        #         then passes them to question_answer_chain.
+        rag_chain = create_retrieval_chain(self._retriever, question_answer_chain)
+
+        # Step C: RunnableWithMessageHistory wraps rag_chain so that every
+        #         call automatically loads the session's past messages into
+        #         "chat_history" and saves the new exchange afterwards.
+        self._chain_with_history = RunnableWithMessageHistory(
+            rag_chain,
+            get_session_history,       # function returning the right history object
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="answer",
+        )
 
         self._is_ready = True
         logger.info("RAG pipeline initialized successfully.")
 
-    def query(self, question: str) -> dict:
+    def query(self, question: str, session_id: str) -> dict:
         """
-        Run the RAG pipeline for the given medical question.
+        Run the full pipeline for the given question and session.
+
+        Step 1 – LCEL Routing (Domain Check):
+            Invoke _classify_chain to decide MEDICAL or NON_MEDICAL.
+            If NON_MEDICAL, immediately return the refusal message.
+
+        Step 2 – RAG with Memory:
+            Invoke _chain_with_history, which:
+              a) retrieves relevant document chunks from ChromaDB,
+              b) injects chat_history for the session,
+              c) calls TinyLlama and saves the new turn to history.
 
         Returns:
             {
-                "answer": str,           # LLM-generated answer
-                "sources": list[str],    # Source file names used
+                "answer" : str,        # LLM-generated answer
+                "sources": list[str],  # source file names cited
             }
         """
         if not self._is_ready:
@@ -252,14 +359,49 @@ class RAGService:
                 "RAG pipeline is not initialized. Call initialize() first."
             )
 
-        # Retrieve source documents for citation
-        result = self._chain.invoke({"input": question})
+        # ------------------------------------------------------------------
+        # Step 1: LCEL Routing — classify the question domain
+        # ------------------------------------------------------------------
+        domain = self._classify_chain.invoke({"input": question})
+        logger.info("Domain classification for question: %s", domain)
+
+        # Route NON_MEDICAL questions to a static refusal (no LLM call needed)
+        if domain == "NON_MEDICAL":
+            return {
+                "answer": "I can answer only medical related problems.",
+                "sources": [],
+            }
+
+        # ------------------------------------------------------------------
+        # Step 2: RAG chain with Conversational Memory
+        # ------------------------------------------------------------------
+        # config["configurable"]["session_id"] tells RunnableWithMessageHistory
+        # which history bucket in session_store to use.
+        result = self._chain_with_history.invoke(
+            {"input": question},
+            config={"configurable": {"session_id": session_id}},
+        )
+
         answer = result["answer"]
         sources = list(
-            {Path(doc.metadata.get("source", "Unknown")).name for doc in result["context"]}
+            {
+                Path(doc.metadata.get("source", "Unknown")).name
+                for doc in result.get("context", [])
+            }
         )
 
         return {"answer": answer, "sources": sorted(sources)}
+
+    def clear_session(self, session_id: str) -> bool:
+        """
+        Delete the chat history for a given session_id from the session_store.
+        Returns True if the session existed and was deleted, False otherwise.
+        """
+        if session_id in session_store:
+            del session_store[session_id]
+            logger.info("Cleared session: %s", session_id)
+            return True
+        return False
 
     @property
     def is_ready(self) -> bool:
