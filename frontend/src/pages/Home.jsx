@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ChatBox from "../components/ChatBox";
 import { askQuestion, clearSession } from "../services/api";
 import {
@@ -8,96 +8,173 @@ import {
   WELCOME_MESSAGE,
 } from "../utils/constants";
 
-/**
- * Generate a unique session ID using the browser's built-in crypto API.
- * This is called once on mount and again whenever the user clicks "New Chat".
- */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 const generateSessionId = () => crypto.randomUUID();
 
-const Home = () => {
-  // sessionId tracks the current conversation on the backend (for memory).
-  // On first load we reuse the ID stored in localStorage so the backend memory
-  // is still aligned with what is shown in the chat.
-  const [sessionId, setSessionId] = useState(() => {
-    const stored = localStorage.getItem("sessionId");
-    if (stored) return stored;
-    const newId = generateSessionId();
-    localStorage.setItem("sessionId", newId);
-    return newId;
-  });
+const createNewSession = () => ({
+  id: generateSessionId(),
+  title: "New Chat",
+  messages: [{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }],
+});
 
-  // Restore the previous chat log from localStorage so history survives reloads.
-  const [messages, setMessages] = useState(() => {
-    try {
-      const stored = localStorage.getItem("chatLog");
-      if (stored) return JSON.parse(stored);
-    } catch {
-      // Ignore parse errors and fall back to the default welcome message.
+const SESSIONS_KEY = "chatSessions";
+const CURRENT_SESSION_KEY = "currentSessionId";
+const MAX_SESSION_TITLE_LENGTH = 30;
+
+/**
+ * Read sessions and the active session ID from localStorage in a single pass.
+ * Both pieces of state are derived together so there is no risk of a mismatch
+ * (e.g. a freshly-generated session ID that doesn't exist in the sessions array).
+ */
+const getInitialState = () => {
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const savedId = localStorage.getItem(CURRENT_SESSION_KEY);
+        const currentSessionId =
+          savedId && parsed.some((s) => s.id === savedId)
+            ? savedId
+            : parsed[0].id;
+        return { sessions: parsed, currentSessionId };
+      }
     }
-    return [{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }];
-  });
+  } catch {
+    // Ignore parse errors and fall back to a fresh session.
+  }
+  const newSession = createNewSession();
+  return { sessions: [newSession], currentSessionId: newSession.id };
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+const Home = () => {
+  // Single combined state so sessions and currentSessionId are always initialised
+  // from the same localStorage snapshot — no risk of a UUID mismatch on first render.
+  const [{ sessions, currentSessionId }, setState] = useState(getInitialState);
+
+  // Convenience updaters that mirror the original two-state API used throughout
+  // the rest of the component, keeping the functional-update pattern intact.
+  const setSessions = (updater) =>
+    setState((prev) => ({
+      ...prev,
+      sessions:
+        typeof updater === "function" ? updater(prev.sessions) : updater,
+    }));
+
+  const setCurrentSessionId = (id) =>
+    setState((prev) => ({ ...prev, currentSessionId: id }));
+
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Track whether the component has completed its initial mount so we can skip
-  // writing to localStorage on the very first render (the values were either
-  // just read from there or already saved during state initialisation).
-  const isMounted = React.useRef(false);
+  // Derived: the active session object and its messages.
+  // Falls back to the first available session if currentSessionId is stale.
+  const currentSession =
+    (sessions.length > 0 &&
+      (sessions.find((s) => s.id === currentSessionId) ?? sessions[0])) ||
+    null;
+  const messages = currentSession?.messages ?? [];
 
-  // Keep localStorage in sync whenever the chat log changes.
+  // Skip localStorage writes on the very first render (values were just read
+  // from there or initialised during state setup above).
+  const isMounted = useRef(false);
+
+  // Persist both sessions and the active session ID whenever either changes.
   useEffect(() => {
     if (!isMounted.current) return;
-    localStorage.setItem("chatLog", JSON.stringify(messages));
-  }, [messages]);
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(CURRENT_SESSION_KEY, currentSessionId);
+  }, [sessions, currentSessionId]);
 
-  // Keep localStorage in sync whenever the session ID changes.
-  useEffect(() => {
-    if (!isMounted.current) return;
-    localStorage.setItem("sessionId", sessionId);
-  }, [sessionId]);
-
-  // Mark the component as mounted after the first render so subsequent state
-  // changes trigger the localStorage sync effects above.
   useEffect(() => {
     isMounted.current = true;
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Event handlers
+  // ---------------------------------------------------------------------------
+
   const handleSend = async () => {
     const question = input.trim();
-    if (!question || isLoading) return;
+    if (!question || isLoading || !currentSession) return;
 
-    // Add user message to the chat log immediately
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    // Capture the active session ID before any async work.
+    const sessionId = currentSession.id;
+
+    // When the user sends their very first message, use it as the chat title.
+    const isFirstUserMessage = !currentSession.messages.some(
+      (m) => m.role === "user"
+    );
+
+    // Append the user message (and optionally update the title) immediately.
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId
+          ? {
+              ...s,
+              title: isFirstUserMessage
+                ? question.slice(0, MAX_SESSION_TITLE_LENGTH)
+                : s.title,
+              messages: [...s.messages, { role: "user", content: question }],
+            }
+          : s
+      )
+    );
+
     setInput("");
     setIsLoading(true);
     setError(null);
 
     try {
-      // Pass the current sessionId so the backend can use chat history
       const data = await askQuestion(question, sessionId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: data.answer,
-          sources: data.sources || [],
-        },
-      ]);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? {
+                ...s,
+                messages: [
+                  ...s.messages,
+                  {
+                    role: "assistant",
+                    content: data.answer,
+                    sources: data.sources || [],
+                  },
+                ],
+              }
+            : s
+        )
+      );
     } catch (err) {
       console.error(err);
       const errMsg =
         err?.response?.data?.detail ||
         "Sorry, I couldn't connect to the server. Please make sure the backend is running.";
       setError(errMsg);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ Error: ${errMsg}`,
-          sources: [],
-        },
-      ]);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? {
+                ...s,
+                messages: [
+                  ...s.messages,
+                  {
+                    role: "assistant",
+                    content: `⚠️ Error: ${errMsg}`,
+                    sources: [],
+                  },
+                ],
+              }
+            : s
+        )
+      );
     } finally {
       setIsLoading(false);
     }
@@ -112,91 +189,141 @@ const Home = () => {
 
   /**
    * "New Chat" handler:
-   * 1. Tell the backend to forget the current session's history.
-   * 2. Generate a fresh session ID for the next conversation.
-   * 3. Reset the local chat log to the welcome message.
-   * 4. Clear the persisted chat log and session ID from localStorage.
+   * 1. Optionally tell the backend to forget the current session's history.
+   * 2. Create a fresh session object, prepend it to the sessions array, and
+   *    make it the active session.
    */
   const handleNewChat = async () => {
-    // Optionally clear the old session on the backend (fire-and-forget)
-    try {
-      await clearSession(sessionId);
-    } catch (e) {
-      // Not critical — the backend will just keep an unused history entry
-      console.warn("Could not clear session on backend:", e);
+    if (currentSession) {
+      try {
+        await clearSession(currentSession.id);
+      } catch (e) {
+        // Not critical — the backend will just keep an unused history entry.
+        console.warn("Could not clear session on backend:", e);
+      }
     }
 
-    const newId = generateSessionId();
-    const freshMessages = [{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }];
-
-    // Persist the new state before updating React so there is no window where
-    // a reload could restore the old (now-cleared) chat.
-    localStorage.setItem("sessionId", newId);
-    localStorage.setItem("chatLog", JSON.stringify(freshMessages));
-
-    // Start fresh locally
-    setSessionId(newId);
-    setMessages(freshMessages);
+    const newSession = createNewSession();
+    setSessions((prev) => [newSession, ...prev]);
+    setCurrentSessionId(newSession.id);
     setError(null);
   };
 
+  const handleSelectSession = (id) => {
+    setCurrentSessionId(id);
+    setError(null);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <header className="bg-teal-700 text-white px-6 py-4 shadow-md flex items-center justify-between flex-shrink-0">
-        <div>
-          <h1 className="text-xl font-bold tracking-wide">🩺 {APP_NAME}</h1>
-          <p className="text-teal-200 text-xs mt-0.5">{APP_TAGLINE}</p>
-        </div>
-        {/* New Chat button: resets session & chat log */}
-        <button
-          onClick={handleNewChat}
-          className="text-xs bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded-lg transition-colors"
-        >
-          New Chat
-        </button>
-      </header>
-
-      {/* Disclaimer banner */}
-      <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-xs text-amber-700 flex-shrink-0">
-        ⚠️ <strong>Disclaimer:</strong> This tool is for educational purposes
-        only and does not constitute medical advice. Always consult a qualified
-        healthcare professional.
-      </div>
-
-      {/* Chat area */}
-      <ChatBox messages={messages} isLoading={isLoading} />
-
-      {/* Error bar */}
-      {error && (
-        <div className="px-6 py-2 bg-red-50 border-t border-red-200 text-xs text-red-600 flex-shrink-0">
-          {error}
-        </div>
-      )}
-
-      {/* Input area */}
-      <div className="border-t border-gray-200 px-4 py-4 bg-white flex-shrink-0">
-        <div className="flex items-end gap-3 max-w-4xl mx-auto">
-          <textarea
-            className="flex-1 resize-none rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent px-4 py-3 text-sm text-gray-800 placeholder-gray-400 max-h-36 min-h-[48px]"
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={PLACEHOLDER_TEXT}
-            disabled={isLoading}
-          />
+    <div className="flex h-screen bg-white overflow-hidden">
+      {/* ------------------------------------------------------------------ */}
+      {/* Sidebar                                                             */}
+      {/* ------------------------------------------------------------------ */}
+      <aside className="w-64 bg-gray-900 text-white flex flex-col flex-shrink-0">
+        {/* New Chat button */}
+        <div className="p-3">
           <button
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+            onClick={handleNewChat}
+            className="w-full text-sm bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
           >
-            {isLoading ? "..." : "Send"}
+            <span className="text-lg leading-none">+</span>
+            New Chat
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-2">
-          Press <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-500">Enter</kbd> to send &bull; <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-500">Shift+Enter</kbd> for new line
-        </p>
+
+        <div className="px-3 pb-1 text-xs text-gray-400 uppercase tracking-wider font-semibold">
+          Recent
+        </div>
+
+        {/* Session list */}
+        <nav className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              onClick={() => handleSelectSession(session.id)}
+              title={session.title}
+              className={`w-full text-left text-sm px-3 py-2 rounded-lg truncate transition-colors ${
+                session.id === currentSessionId
+                  ? "bg-gray-700 text-white"
+                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              💬 {session.title}
+            </button>
+          ))}
+        </nav>
+
+        {/* App name footer */}
+        <div className="p-3 border-t border-gray-700 text-xs text-gray-500">
+          🩺 {APP_NAME}
+        </div>
+      </aside>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Main content area                                                   */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <header className="bg-teal-700 text-white px-6 py-4 shadow-md flex items-center flex-shrink-0">
+          <div>
+            <h1 className="text-xl font-bold tracking-wide">🩺 {APP_NAME}</h1>
+            <p className="text-teal-200 text-xs mt-0.5">{APP_TAGLINE}</p>
+          </div>
+        </header>
+
+        {/* Disclaimer banner */}
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 text-xs text-amber-700 flex-shrink-0">
+          ⚠️ <strong>Disclaimer:</strong> This tool is for educational purposes
+          only and does not constitute medical advice. Always consult a qualified
+          healthcare professional.
+        </div>
+
+        {/* Chat area */}
+        <ChatBox messages={messages} isLoading={isLoading} />
+
+        {/* Error bar */}
+        {error && (
+          <div className="px-6 py-2 bg-red-50 border-t border-red-200 text-xs text-red-600 flex-shrink-0">
+            {error}
+          </div>
+        )}
+
+        {/* Input area */}
+        <div className="border-t border-gray-200 px-4 py-4 bg-white flex-shrink-0">
+          <div className="flex items-end gap-3 max-w-4xl mx-auto">
+            <textarea
+              className="flex-1 resize-none rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent px-4 py-3 text-sm text-gray-800 placeholder-gray-400 max-h-36 min-h-[48px]"
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={PLACEHOLDER_TEXT}
+              disabled={isLoading}
+            />
+            <button
+              onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-5 py-3 rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+            >
+              {isLoading ? "..." : "Send"}
+            </button>
+          </div>
+          <p className="text-center text-xs text-gray-400 mt-2">
+            Press{" "}
+            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-500">
+              Enter
+            </kbd>{" "}
+            to send &bull;{" "}
+            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-500">
+              Shift+Enter
+            </kbd>{" "}
+            for new line
+          </p>
+        </div>
       </div>
     </div>
   );
