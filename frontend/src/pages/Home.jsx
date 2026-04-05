@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import ChatBox from "../components/ChatBox";
 import { askQuestion, clearSession } from "../services/api";
 import {
@@ -15,15 +15,53 @@ import {
 const generateSessionId = () => crypto.randomUUID();
 
 const Home = () => {
-  // sessionId tracks the current conversation on the backend (for memory)
-  const [sessionId, setSessionId] = useState(() => generateSessionId());
+  // sessionId tracks the current conversation on the backend (for memory).
+  // On first load we reuse the ID stored in localStorage so the backend memory
+  // is still aligned with what is shown in the chat.
+  const [sessionId, setSessionId] = useState(() => {
+    const stored = localStorage.getItem("sessionId");
+    if (stored) return stored;
+    const newId = generateSessionId();
+    localStorage.setItem("sessionId", newId);
+    return newId;
+  });
 
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: WELCOME_MESSAGE, sources: [] },
-  ]);
+  // Restore the previous chat log from localStorage so history survives reloads.
+  const [messages, setMessages] = useState(() => {
+    try {
+      const stored = localStorage.getItem("chatLog");
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // Ignore parse errors and fall back to the default welcome message.
+    }
+    return [{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }];
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Track whether the component has completed its initial mount so we can skip
+  // writing to localStorage on the very first render (the values were either
+  // just read from there or already saved during state initialisation).
+  const isMounted = React.useRef(false);
+
+  // Keep localStorage in sync whenever the chat log changes.
+  useEffect(() => {
+    if (!isMounted.current) return;
+    localStorage.setItem("chatLog", JSON.stringify(messages));
+  }, [messages]);
+
+  // Keep localStorage in sync whenever the session ID changes.
+  useEffect(() => {
+    if (!isMounted.current) return;
+    localStorage.setItem("sessionId", sessionId);
+  }, [sessionId]);
+
+  // Mark the component as mounted after the first render so subsequent state
+  // changes trigger the localStorage sync effects above.
+  useEffect(() => {
+    isMounted.current = true;
+  }, []);
 
   const handleSend = async () => {
     const question = input.trim();
@@ -77,6 +115,7 @@ const Home = () => {
    * 1. Tell the backend to forget the current session's history.
    * 2. Generate a fresh session ID for the next conversation.
    * 3. Reset the local chat log to the welcome message.
+   * 4. Clear the persisted chat log and session ID from localStorage.
    */
   const handleNewChat = async () => {
     // Optionally clear the old session on the backend (fire-and-forget)
@@ -87,9 +126,17 @@ const Home = () => {
       console.warn("Could not clear session on backend:", e);
     }
 
+    const newId = generateSessionId();
+    const freshMessages = [{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }];
+
+    // Persist the new state before updating React so there is no window where
+    // a reload could restore the old (now-cleared) chat.
+    localStorage.setItem("sessionId", newId);
+    localStorage.setItem("chatLog", JSON.stringify(freshMessages));
+
     // Start fresh locally
-    setSessionId(generateSessionId());
-    setMessages([{ role: "assistant", content: WELCOME_MESSAGE, sources: [] }]);
+    setSessionId(newId);
+    setMessages(freshMessages);
     setError(null);
   };
 
