@@ -214,6 +214,34 @@ const Home = () => {
     setError(null);
   };
 
+  /**
+   * "Delete Chat" handler:
+   * 1. Tell the backend to clear the session's history.
+   * 2. Remove the session from state (localStorage is synced by the useEffect).
+   * 3. If it was the active session, switch to the next available one (or a
+   *    brand-new session if it was the last one).
+   */
+  const handleDeleteSession = async (id) => {
+    try {
+      await clearSession(id);
+    } catch (e) {
+      console.warn("Could not clear session on backend:", e);
+    }
+
+    setState((prev) => {
+      const remaining = prev.sessions.filter((s) => s.id !== id);
+      if (remaining.length === 0) {
+        const newSession = createNewSession();
+        return { ...prev, sessions: [newSession], currentSessionId: newSession.id };
+      }
+      const newCurrentId =
+        prev.currentSessionId === id ? remaining[0].id : prev.currentSessionId;
+      return { ...prev, sessions: remaining, currentSessionId: newCurrentId };
+    });
+
+    setError(null);
+  };
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -242,18 +270,37 @@ const Home = () => {
         {/* Session list */}
         <nav className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
           {sessions.map((session) => (
-            <button
+            <div
               key={session.id}
-              onClick={() => handleSelectSession(session.id)}
-              title={session.title}
-              className={`w-full text-left text-sm px-3 py-2 rounded-lg truncate transition-colors ${
+              className={`group relative flex items-center rounded-lg transition-colors ${
                 session.id === currentSessionId
-                  ? "bg-gray-700 text-white"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                  ? "bg-gray-700"
+                  : "hover:bg-gray-800"
               }`}
             >
-              💬 {session.title}
-            </button>
+              <button
+                onClick={() => handleSelectSession(session.id)}
+                title={session.title}
+                className={`flex-1 text-left text-sm px-3 py-2 truncate ${
+                  session.id === currentSessionId
+                    ? "text-white"
+                    : "text-gray-300 group-hover:text-white"
+                }`}
+              >
+                💬 {session.title}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteSession(session.id);
+                }}
+                title="Delete chat"
+                className="flex-shrink-0 opacity-0 group-hover:opacity-100 mr-2 p-0.5 text-gray-400 hover:text-red-400 transition-opacity rounded"
+                aria-label="Delete chat"
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </nav>
 
